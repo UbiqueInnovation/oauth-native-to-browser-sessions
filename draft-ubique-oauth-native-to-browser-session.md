@@ -101,8 +101,24 @@ We define the following scope value to request session transfer:
 # Token Response Extension
 Token Respone as defined in Section 3.1.3.3 of OIDC 1.0. [RFC https://openid.net/specs/openid-connect-core-1_0-final.html#OfflineAccess] Additionally, this draft defines the following new response parameter values and rules.
 
-  - session_transfer_token: REQUIRED if grant_type `session_transfer` was requested, else it is omitted. In that case the `access_token` response parameter value MUST be omitted. The session transfer token associated with the current authenticated session, it can be used to bootstrap an authenticated session of a native application into an ephemeral browser session.
-  - session_transfer_request_token: REQUIRED if scope includes `session_transfer`. If grant_type `session_transfer` was requested, a fresh session transfer request token MAY be issued for future use. The session transfer request token associated with the current authenticated session, can be used to request new session transfer tokens from the IdP. As such it is considered confidential and should be treated with similar security considerations as is the case with `refresh_tokens`
+  - session_transfer_token: REQUIRED if grant_type `session_transfer` was requested, else it is omitted. If a session_transfer_token is included in the token response, the `access_token` response parameter value MUST be omitted. The session transfer token associated with the current authenticated session, it can be used to bootstrap an authenticated session of a native application into an ephemeral browser session.
+  - session_transfer_request_token: REQUIRED if the scope includes `session_transfer`. If grant_type `session_transfer` was requested, a fresh session transfer request token MAY be issued for future use. The session transfer request token associated with the current authenticated session, can be used to request new session transfer tokens from the IdP. As such it is considered confidential and should be treated with similar security considerations as is the case with `refresh_tokens`
+
+# URI Matching Rules
+Matching the URIs to the respective redirect URLs on the IdP is done in similar fashion to the virtual server name search in NGINX. If the URI matches to more than one of the specified variants, the first matching variant will be chosen in the following order of priority:
+
+  1. the exact name
+  2. the longest wildcard name starting with an asterisk, e.g. “*.example.com”
+  3. the longest wildcard name ending with an asterisk, e.g. “mail.*”
+  4. the first matching regular expression (in order of appearance in the configuration file)
+
+# Authorize Request Extension
+The Authorize Request as defined in BLA. Addtionally, this draft defined the followng new request parameter.
+
+  - session_token: OPTIONAL. A session transfer token previously created by the IdP used to bootstrap an authenticated native application login session to an ephemeral browser session.
+
+The IdP MUST validate the `rp_uri` which was sent to the IdP when the client requested the STT.
+If the URI does not match according to the rule defined in RP URI Match rules (The ones from NGINX, write a new section here...), the IdP starts a new authentication flow ignoring the STT and prompting the user for login.
 
 
 # Using Session Transfer Request Tokens
@@ -112,32 +128,35 @@ If the authorization server issued a session_transfer_request_token to the clien
 
    - grant_type: REQUIRED. Value MUST be set to "session_transfer_request_token"
    - session_transfer_request_token: REQUIRED. The session transfer request token issued to the client.
+   - rp_uri: REQUIRED. The URL and path of the web application, the native application wants to establish an authentiated session with.
 
 The session transfer request token is bound to the client it was issued to.
 Since session transfer request tokens are long-lasting credentials, they should be threated with the same care as is the case with a `refresh_token`.
 
 The Authorization Server MUST validate the session transfer request token and MUST verify that it was issued to the Client.
 
-Upon validation of the Session Transfer Request Token, the response body is the Token Response as defined in Section 
-except that it contains a 
+Upon validation of the Session Transfer Request Token, the response body is the Token Response as defined in the previous section.
 
-# Issuance Flow
+[# Issuance Flow]: #
 
-Standard OIDC request with a new "session_transfer" scope, in this case, the IdP will include a "session_transfer_request" token, which should be threated with the same precautions as a refresh token.
+[Standard OIDC request with a new "session_transfer" scope, in this case, the IdP will include a "session_transfer_request" token, which should be threated with the same precautions as a refresh token.]: #
 
-In case the Native Application wants to transfer the existing session to the browser, the Native Application requests a "Session_Transfer_Token" from the IdP via the token endpoint using grant_type "session_transfer". In this case, the IdP "MUST NOT" include an "Access Token" in the token response.
-The token response "MAY" include a new "session_transfer_request" token.
+[In case the Native Application wants to transfer the existing session to the browser, the Native Application requests a "Session_Transfer_Token" from the IdP via the token endpoint using grant_type "session_transfer". In this case, the IdP "MUST NOT" include an "Access Token" in the token response.
+The token response "MAY" include a new "session_transfer_request" token.]: #
+
 # Redemtion Flows
 
 There are two primary ways to redeem a STT to establish or refresh a user’s authenticated session in a web context:
 
 1. **RP-Initiated Flow**:  
-   The Relying Party (RP) begins a standard OpenID Connect (OIDC) or OAuth 2.0 flow, passing the STT to the Identity Provider (IdP) (e.g., via `login_hint`) such that user interaction is minimized or avoided entirely.
+   The Relying Party (RP) begins a standard OpenID Connect (OIDC) or OAuth 2.0 flow, passing the STT to the Identity Provider (IdP) such that user interaction is minimized or avoided entirely.
 
 2. **IdP-Initiated Flow**:  
    The native app directly navigates to the IdP with the STT. The IdP sets an SSO cookie (or refreshes the existing one), then redirects the user to the RP, which completes an OIDC flow silently, recognizing the already-authenticated user.
 
 ## RP-Initiated Flow
+
+![alt RP Initated Flow](figures/rpInitiatedFlow.svg)
 
 1. **App → RP**
 
@@ -150,13 +169,12 @@ There are two primary ways to redeem a STT to establish or refresh a user’s au
 2. **RP Parses the STT**
 
    - The RP checks the incoming `session_token` parameter.
-   - If it finds a valid token, it initiates an **OIDC Authorization Request** to the IdP, including the STT as a `login_hint` (or another relevant parameter the IdP will recognize).
+   - If it finds a valid token, it initiates an **OIDC Authorization Request** to the IdP, including the STT using a newly created `session_token` parameter.
 
 3. **IdP Validates the STT**
 
    - The IdP sees the `session_token=XYZ123`.
-   - It introspects or otherwise verifies the STT (e.g., single-use, not expired, tied to the correct user/client). 
-<!---   How can the IdP verify that this token belongs to this particular session, and has not been stolen? PKCE/ dPoP needed? --->
+   - It introspects or otherwise verifies the STT e.g., single-use, not expired, tied to the correct user/client, and tied to the correct relying party uri as defined in section (Using Session Transfer Request Tokens). 
 
    - If valid, the IdP can issue an **Authorization Code** or **ID Token** to the RP without prompting the user to log in again.
 
@@ -165,7 +183,7 @@ There are two primary ways to redeem a STT to establish or refresh a user’s au
    - The RP redeems the authorization code for tokens (if using the Authorization Code flow).
    - It sets a secure, HTTP-only session cookie, so the user remains logged in within the browser context.
 
-5. **STT Marked as Used**
+5. **The IdP marks the STT Marked as Used**
    - The IdP (or relevant introspection service) marks the STT as consumed.
    - Replaying `XYZ123` again should fail.
 
@@ -180,6 +198,8 @@ There are two primary ways to redeem a STT to establish or refresh a user’s au
 - The user’s browser will encounter at least one redirect to the IdP.
 
 ## IdP-Initiated Flow
+
+![alt Authorize Flow](figures/authorizeFlow.svg)
 
 1. **App Navigates Directly to the IdP**
 
@@ -231,9 +251,9 @@ There are two primary ways to redeem a STT to establish or refresh a user’s au
 
 # Security Considerations
 
-- The mechanism needs to ensure that the STT is redeemed by the legitimate user of the native app session. This could be adressed by leveraging existing mechanisms such as PKCE or dPoP.
-- Due to the short-lived, single use nature of the STT it is no security threat when the STT is included in logs, when being sent as a query-parameter.
-- 
+- Due to the short-lived, single use nature of the STT it is no security threat when the STT is included in logs, when being sent as a query-parameter. Additionally the scope of the STT is bound to a particular relying party, rendering the token useless for priviledge escalation.
+- The IdP initiated flow needs additional security considerations, since a session cookie on the IdP needs to be issued. Thus, if an attacker manages to steal the session cookie after a session transfer, he can access any service tied to that IdP. As such, it is recommended to bind the session cookie to a specific client ID according to the ruleset specified in the previous section {{TODO:: Refer to the section.}}
+  
 
 # IANA Considerations
 
