@@ -94,6 +94,39 @@ To bridge this gap, we propose a short-lived, single-use Session Transfer Token 
 
 3. **Single-Use & Expiration**: The AS marks the STT as consumed when it is redeemed, preventing reuse or replay attacks. The token’s short validity window further limits exposure if it is ever intercepted.
 
+# Scope extension
+We define the following scope value to request session transfer:
+  - session_transfer: OPTIONAL. This `scope` value requests that a Session Transfer Request Token be issued that can be used to obtain a Session Transfer Token that can be used to transfer the authenticated session from a native application to a specified browser session of choice. 
+
+# Token Response Extension
+Token Respone as defined in Section 3.1.3.3 of OIDC 1.0. [RFC https://openid.net/specs/openid-connect-core-1_0-final.html#OfflineAccess] Additionally, this draft defines the following new response parameter values and rules.
+
+  - session_transfer_token: REQUIRED if grant_type `session_transfer` was requested, else it is omitted. In that case the `access_token` response parameter value MUST be omitted. The session transfer token associated with the current authenticated session, it can be used to bootstrap an authenticated session of a native application into an ephemeral browser session.
+  - session_transfer_request_token: REQUIRED if scope includes `session_transfer`. If grant_type `session_transfer` was requested, a fresh session transfer request token MAY be issued for future use. The session transfer request token associated with the current authenticated session, can be used to request new session transfer tokens from the IdP. As such it is considered confidential and should be treated with similar security considerations as is the case with `refresh_tokens`
+
+
+# Using Session Transfer Request Tokens
+A request to the Token Endpont can also use a Session Transfer Request Token by using the `grant_type` value `session_tranfer_request_token`.
+
+If the authorization server issued a session_transfer_request_token to the client, the client makes a session transfer request to the token endpoint by adding the following parameters using the "application/x-www-form-urlencoded" format described in Appendix B of OAUTH 2.0 [RFC 6749]. The character encoding of UTF-8 in the HTTP request entity-body:
+
+   - grant_type: REQUIRED. Value MUST be set to "session_transfer_request_token"
+   - session_transfer_request_token: REQUIRED. The session transfer request token issued to the client.
+
+The session transfer request token is bound to the client it was issued to.
+Since session transfer request tokens are long-lasting credentials, they should be threated with the same care as is the case with a `refresh_token`.
+
+The Authorization Server MUST validate the session transfer request token and MUST verify that it was issued to the Client.
+
+Upon validation of the Session Transfer Request Token, the response body is the Token Response as defined in Section 
+except that it contains a 
+
+# Issuance Flow
+
+Standard OIDC request with a new "session_transfer" scope, in this case, the IdP will include a "session_transfer_request" token, which should be threated with the same precautions as a refresh token.
+
+In case the Native Application wants to transfer the existing session to the browser, the Native Application requests a "Session_Transfer_Token" from the IdP via the token endpoint using grant_type "session_transfer". In this case, the IdP "MUST NOT" include an "Access Token" in the token response.
+The token response "MAY" include a new "session_transfer_request" token.
 # Redemtion Flows
 
 There are two primary ways to redeem a STT to establish or refresh a user’s authenticated session in a web context:
@@ -121,7 +154,7 @@ There are two primary ways to redeem a STT to establish or refresh a user’s au
 
 3. **IdP Validates the STT**
 
-   - The IdP sees the `login_hint=XYZ123`.
+   - The IdP sees the `session_token=XYZ123`.
    - It introspects or otherwise verifies the STT (e.g., single-use, not expired, tied to the correct user/client). 
 <!---   How can the IdP verify that this token belongs to this particular session, and has not been stolen? PKCE/ dPoP needed? --->
 
